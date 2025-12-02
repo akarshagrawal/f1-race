@@ -69,6 +69,8 @@ python main.py --year 2025 --round 12 --refresh-data
 - Open pull requests for UI improvements or new features.
 - Report issues on GitHub.
 
+Please see [roadmap.md](./roadmap.md) for planned features and project vision.
+
 # Known Issues
 
 - The leaderboard appears to be inaccurate for the first few corners of the race. The leaderboard is also temporarily affected by a driver going in the pits. At the end of the race the leadeboard is sometimes affected by the drivers final x,y positions being further ahead than other drivers. These issues are known issues caused by innacuracies in the telemetry and being worked on for future releases. Its likely that these issues will be fixed in stages as improving the leaderboard accuracy is a complex task.
