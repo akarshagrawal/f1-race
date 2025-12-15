@@ -661,9 +661,34 @@ class RaceProgressBarComponent(BaseComponent):
         start_frame = event.get("frame", 0)
         end_frame = event.get("end_frame", start_frame + 100)  # default duration
         
-        start_x = self._frame_to_x(start_frame)
-        end_x = self._frame_to_x(end_frame)
-        segment_width = max(4, end_x - start_x)  # minimum width for visibility
+        clamped_start = max(0, min(start_frame, self._total_frames))
+        clamped_end = max(0, min(end_frame, self._total_frames))
+        
+        if clamped_start >= clamped_end:
+            # after clamping, if start >= end, the segment is fully outside the
+            # visible race window (e.g., flag ended before frame 0)
+            return
+        
+        # Convert clamped frames to X positions
+        start_x = self._frame_to_x(clamped_start)
+        end_x = self._frame_to_x(clamped_end)
+        
+        # Additional safety: clamp X positions to bar boundaries.
+        # This provides defense-in-depth against floating-point edge cases
+        # that might otherwise cause slight visual overflow on some platforms
+        bar_right = self._bar_left + self._bar_width
+        start_x = max(self._bar_left, min(start_x, bar_right))
+        end_x = max(self._bar_left, min(end_x, bar_right))
+        
+        # Calculate segment width with minimum visibility threshold
+        segment_width = end_x - start_x
+        
+        # Skip segments with zero or negative visible width after clamping
+        if segment_width <= 0:
+            return
+        
+        # Ensure minimum width for visibility (thin flags are hard to see)
+        segment_width = max(4, segment_width)
         
         # Draw as a thin bar above the main progress bar
         segment_rect = arcade.XYWH(
