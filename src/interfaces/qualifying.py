@@ -29,6 +29,8 @@ class QualifyingReplay(arcade.Window):
         self.leaderboard.set_entries(self.data.get("results", []))
         self.frames = []
         self.drs_zones = []
+        self.drs_zones_xy = []
+        self.toggle_drs_zones = True
         self.n_frames = 0
         self.min_speed = 0.0
         self.max_speed = 0.0
@@ -88,7 +90,7 @@ class QualifyingReplay(arcade.Window):
          self.x_inner, self.y_inner,
          self.x_outer, self.y_outer,
          self.x_min, self.x_max,
-         self.y_min, self.y_max, self.drs_zones) = build_track_from_example_lap(example_lap.get_telemetry())
+         self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(example_lap.get_telemetry())
          
         ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
         self._ref_xs = np.array([p[0] for p in ref_points])
@@ -496,6 +498,38 @@ class QualifyingReplay(arcade.Window):
                     except Exception as e:
                         print("Circuit draw error:", e)
 
+                    # Draw DRS zones on track map as green highlights
+                    if self.drs_zones_xy and self.toggle_drs_zones:
+                        drs_color = (0, 255, 0)
+                        original_length = len(self.x_inner)
+                        # Interpolated world points length
+                        interpolated_length = len(inner_world)
+                        
+                        for dz in self.drs_zones_xy:
+                            orig_start_idx = dz["start"]["index"]
+                            orig_end_idx = dz["end"]["index"]
+
+                            if orig_start_idx is None or orig_end_idx is None:
+                                continue
+                            try:
+                                # Map original indices to interpolated array indices
+                                interp_start_idx = int((orig_start_idx / original_length) * interpolated_length)
+                                interp_end_idx = int((orig_end_idx / original_length) * interpolated_length)
+                                
+                                # Clamp to valid range
+                                interp_start_idx = max(0, min(interp_start_idx, interpolated_length - 1))
+                                interp_end_idx = max(0, min(interp_end_idx, interpolated_length - 1))
+                                
+                                if interp_start_idx < interp_end_idx:
+                                    # Extract segments for this DRS zone using mapped indices
+                                    outer_zone = [world_to_map(x, y) for x, y in outer_world[interp_start_idx:interp_end_idx+1] 
+                                                  if x is not None and y is not None]
+                                    if len(outer_zone) > 1:
+                                        arcade.draw_line_strip(outer_zone, drs_color, 3)
+
+                            except Exception as e:
+                                print(f"DRS zone draw error: {e}")
+
                     # Draw current driver's position marker (sync with frame_index)
                     current_frame = frames[self.frame_index]
                     tel = current_frame.get("telemetry", {}) if isinstance(current_frame.get("telemetry", {}), dict) else {}
@@ -521,13 +555,14 @@ class QualifyingReplay(arcade.Window):
 
             # Controls Legend - Bottom Left (keeps small offset from left UI edge)
             legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-            legend_y = 150 # Height of legend block
+            legend_y = 180 # Height of legend block
             legend_lines = [
                 "Controls:",
                 "[SPACE]  Pause/Resume",
                 "[←/→]    Rewind / FastForward",
                 "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
                 "[R]       Restart",
+                "[D]       Toggle DRS zones",
             ]
 
             for i, line in enumerate(legend_lines):
@@ -537,7 +572,7 @@ class QualifyingReplay(arcade.Window):
                     legend_y - (i * 25),
                     arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
                     14,
-                    bold=(i == 0)
+                    bold=(i == 0),
                 ).draw()
         else:
             # Add "click a driver to view their qualifying lap" text in the center of the chart area
@@ -622,6 +657,8 @@ class QualifyingReplay(arcade.Window):
             self.playback_speed = 2.0
         elif symbol == arcade.key.KEY_4:
             self.playback_speed = 4.0
+        elif symbol == arcade.key.D:
+            self.toggle_drs_zones = not self.toggle_drs_zones
         elif symbol == arcade.key.R:
             self.frame_index = 0
             self.play_time = self.play_start_t
