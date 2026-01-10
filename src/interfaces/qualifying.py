@@ -6,6 +6,7 @@ from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardCo
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
+from src.ui_components import LegendComponent
 
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
