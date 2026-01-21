@@ -45,6 +45,29 @@ pip install -r requirements.txt
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
 
+## Database Caching
+
+The application now supports SQL database caching for telemetry data in addition to pickle files. This provides better data organization, querying capabilities, and easier data management.
+
+**Features:**
+- Automatic database creation (`f1_telemetry.db` in project root)
+- Stores all race and qualifying telemetry data
+- Backward compatible with existing pickle cache
+- Faster subsequent data retrieval
+
+**Usage:**
+- Database caching is automatic - data is saved to both database and pickle files
+- To force database usage: `python main.py --viewer --year 2025 --round 12 --use-db`
+- To refresh data (bypass all caches): `python main.py --viewer --year 2025 --round 12 --refresh-data`
+
+The database stores:
+- Session metadata (year, round, event name, circuit info)
+- Driver information and colors
+- Frame-by-frame telemetry (position, speed, gear, DRS, throttle, brake, tires)
+- Track status changes (safety car, VSC, etc.)
+- Weather data
+- Qualifying results and lap times
+
 ## Environment Setup
 
 To get started with this project locally, you can follow these steps:

@@ -13,6 +13,21 @@ from src.lib.time import parse_time_string, format_time
 
 import pandas as pd
 
+# Database support
+try:
+    from src.database import (
+        init_database,
+        check_session_exists,
+        save_race_telemetry,
+        load_race_telemetry,
+        save_qualifying_telemetry,
+        load_qualifying_telemetry
+    )
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
+    print("Warning: Database support not available. Install sqlalchemy to enable database caching.")
+
 def enable_cache():
     # Check if cache folder exists
     if not os.path.exists('.fastf1-cache'):
@@ -159,18 +174,37 @@ def get_race_telemetry(session, session_type='R'):
 
     event_name = str(session).replace(' ', '_')
     cache_suffix = 'sprint' if session_type == 'S' else 'race'
+    
+    # Extract session info for database
+    year = session.event.get('EventDate').year if session.event.get('EventDate') else 2025
+    round_number = session.event.get('RoundNumber', 1)
 
     # Check if this data has already been computed
-
-    try:
-        if "--refresh-data" not in sys.argv:
+    # Priority: 1. Database (if --use-db or database exists), 2. Pickle cache
+    
+    use_database = "--use-db" in sys.argv or (DATABASE_AVAILABLE and check_session_exists(year, round_number, session_type))
+    
+    if "--refresh-data" not in sys.argv:
+        # Try loading from database first if available
+        if DATABASE_AVAILABLE and use_database:
+            try:
+                data = load_race_telemetry(year, round_number, session_type)
+                if data:
+                    print(f"Loaded {cache_suffix} telemetry data from database.")
+                    print("The replay should begin in a new window shortly!")
+                    return data
+            except Exception as e:
+                print(f"Error loading from database: {e}")
+        
+        # Fallback to pickle cache
+        try:
             with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
                 frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
+                print(f"Loaded precomputed {cache_suffix} telemetry data from pickle cache.")
                 print("The replay should begin in a new window shortly!")
                 return frames
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+        except FileNotFoundError:
+            pass  # Need to compute from scratch
 
 
     drivers = session.drivers
@@ -413,28 +447,40 @@ def get_race_telemetry(session, session_type='R'):
 
         frames.append(frame_payload)
     print("completed telemetry extraction...")
-    print("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
-
-    # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "frames": frames,
-            "driver_colors": get_driver_colors(session),
-            "track_statuses": formatted_track_statuses,
-            "total_laps": int(max_lap_number),
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    print("Saved Successfully!")
-    print("The replay should begin in a new window shortly")
-    return {
+    print("Saving to cache...")
+    
+    # Prepare data to return/save
+    telemetry_data = {
         "frames": frames,
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
     }
+    
+    # Save to database if available
+    if DATABASE_AVAILABLE:
+        try:
+            session_info = {
+                'event_name': session.event.get('EventName', ''),
+                'circuit_name': session.event.get('Location', ''),
+                'country': session.event.get('Country', ''),
+                'date': session.event.get('EventDate', '').strftime('%Y-%m-%d') if session.event.get('EventDate') else '',
+                'circuit_rotation': get_circuit_rotation(session)
+            }
+            save_race_telemetry(year, round_number, session_type, session_info, telemetry_data)
+        except Exception as e:
+            print(f"Warning: Could not save to database: {e}")
+    
+    # Also save to pickle for backward compatibility
+    if not os.path.exists("computed_data"):
+        os.makedirs("computed_data")
+
+    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+        pickle.dump(telemetry_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    print("Saved Successfully!")
+    print("The replay should begin in a new window shortly")
+    return telemetry_data
 
 
 def get_qualifying_results(session):
@@ -786,17 +832,35 @@ def get_quali_telemetry(session, session_type='Q'):
 
     event_name = str(session).replace(' ', '_')
     cache_suffix = 'sprintquali' if session_type == 'SQ' else 'quali'
+    
+    # Extract session info for database
+    year = session.event.get('EventDate').year if session.event.get('EventDate') else 2025
+    round_number = session.event.get('RoundNumber', 1)
 
     # Check if this data has already been computed
-    try:
-        if "--refresh-data" not in sys.argv:
+    use_database = "--use-db" in sys.argv or (DATABASE_AVAILABLE and check_session_exists(year, round_number, session_type))
+    
+    if "--refresh-data" not in sys.argv:
+        # Try loading from database first if available
+        if DATABASE_AVAILABLE and use_database:
+            try:
+                data = load_qualifying_telemetry(year, round_number, session_type)
+                if data:
+                    print(f"Loaded {cache_suffix} telemetry data from database.")
+                    print("The replay should begin in a new window shortly!")
+                    return data
+            except Exception as e:
+                print(f"Error loading from database: {e}")
+        
+        # Fallback to pickle cache
+        try:
             with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
                 data = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
+                print(f"Loaded precomputed {cache_suffix} telemetry data from pickle cache.")
                 print("The replay should begin in a new window shortly!")
                 return data
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+        except FileNotFoundError:
+            pass  # Need to compute from scratch
 
     qualifying_results = get_qualifying_results(session)
 
@@ -832,25 +896,35 @@ def get_quali_telemetry(session, session_type='Q'):
         if result["min_speed"] < min_speed or min_speed == 0.0:
             min_speed = result["min_speed"]
 
-    # Save to the compute_data directory
-
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
-
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "results": qualifying_results,
-            "telemetry": telemetry_data,
-            "max_speed": max_speed,
-            "min_speed": min_speed,
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    return {
+    # Prepare data to return/save
+    quali_data = {
         "results": qualifying_results,
         "telemetry": telemetry_data,
         "max_speed": max_speed,
         "min_speed": min_speed,
     }
+    
+    # Save to database if available
+    if DATABASE_AVAILABLE:
+        try:
+            session_info = {
+                'event_name': session.event.get('EventName', ''),
+                'circuit_name': session.event.get('Location', ''),
+                'country': session.event.get('Country', ''),
+                'date': session.event.get('EventDate', '').strftime('%Y-%m-%d') if session.event.get('EventDate') else ''
+            }
+            save_qualifying_telemetry(year, round_number, session_type, session_info, quali_data)
+        except Exception as e:
+            print(f"Warning: Could not save to database: {e}")
+    
+    # Also save to pickle for backward compatibility
+    if not os.path.exists("computed_data"):
+        os.makedirs("computed_data")
+
+    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+        pickle.dump(quali_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return quali_data
 
 
 def get_race_weekends_by_year(year):

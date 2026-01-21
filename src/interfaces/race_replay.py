@@ -11,6 +11,7 @@ from src.ui_components import (
     RaceControlsComponent,
     ControlsPopupComponent,
     SessionInfoComponent,
+    TelemetryComparisonComponent,
     extract_race_events,
     build_track_from_example_lap,
     draw_finish_line
@@ -93,6 +94,14 @@ class F1RaceReplayWindow(arcade.Window):
                 date=session_info.get('date', ''),
                 total_laps=total_laps
             )
+        
+        # Telemetry comparison component
+        self.telemetry_comp = TelemetryComparisonComponent(
+            left=self.left_ui_margin + 20,
+            bottom=200,
+            width=600,
+            height=400
+        )
 
         self.is_rewinding = False
         self.is_forwarding = False
@@ -512,6 +521,10 @@ class F1RaceReplayWindow(arcade.Window):
         # Selected driver info component
         self.driver_info_comp.draw(self)
         
+        # Update and draw telemetry comparison
+        self.telemetry_comp.update_data(frame["drivers"], self.driver_colors)
+        self.telemetry_comp.draw(self)
+        
         # Race Progress Bar with event markers (DNF, flags, leader changes)
         self.progress_bar_comp.draw(self)
         
@@ -612,6 +625,9 @@ class F1RaceReplayWindow(arcade.Window):
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
         elif symbol == arcade.key.I:
             self.session_info_comp.toggle_visibility() # toggle session info banner
+        elif symbol == arcade.key.T:
+            # Toggle telemetry comparison panel
+            self.telemetry_comp.visible = not self.telemetry_comp.visible
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
@@ -628,6 +644,10 @@ class F1RaceReplayWindow(arcade.Window):
             self.paused = self.was_paused_before_hold
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
+        # Check telemetry panel first (highest priority)
+        if self.telemetry_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+            
         # forward to components; stop at first that handled it
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
             return
@@ -635,8 +655,22 @@ class F1RaceReplayWindow(arcade.Window):
             return
         if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
             return
+        
+        # Handle leaderboard clicks - check for telemetry selection
         if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
+            # If Shift was held, update telemetry panel
+            if modifiers & arcade.key.MOD_SHIFT:
+                selected_drivers = getattr(self, "selected_drivers", [])
+                for code in selected_drivers:
+                    if code not in self.telemetry_comp.selected_drivers:
+                        driver_color = self.driver_colors.get(code, (255, 255, 255))
+                        self.telemetry_comp.add_driver(code, driver_color)
+                # Remove drivers that were deselected
+                for code in list(self.telemetry_comp.selected_drivers):
+                    if code not in selected_drivers:
+                        self.telemetry_comp.remove_driver(code)
             return
+            
         if self.legend_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         # default: clear selection if clicked elsewhere
